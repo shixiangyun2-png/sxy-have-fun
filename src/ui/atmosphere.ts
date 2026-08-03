@@ -44,43 +44,78 @@ export function createAtmosphere(canvas: HTMLCanvasElement): () => void {
   };
 
   const drawFaceSilhouette = (t: number) => {
-    const cx = width * 0.68;
-    const cy = height * 0.38;
-    const scale = Math.min(width, height) * 0.28;
-    const breathe = 1 + Math.sin(t * 0.0012) * 0.02;
+    const isNarrow = width < 720;
+    const cx = isNarrow ? width * 0.5 : width * 0.7;
+    const cy = isNarrow ? height * 0.32 : height * 0.4;
+    const scale = Math.min(width, height) * (isNarrow ? 0.38 : 0.42);
+    const breathe = 1 + Math.sin(t * 0.0012) * 0.025;
+    const sweep = (t * 0.00035) % 1;
 
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(breathe, breathe);
 
-    const grad = ctx.createRadialGradient(0, 0, scale * 0.1, 0, 0, scale * 1.35);
-    grad.addColorStop(0, 'rgba(46, 230, 168, 0.22)');
-    grad.addColorStop(0.45, 'rgba(240, 163, 90, 0.1)');
+    const grad = ctx.createRadialGradient(0, -scale * 0.1, scale * 0.08, 0, 0, scale * 1.45);
+    grad.addColorStop(0, 'rgba(46, 230, 168, 0.38)');
+    grad.addColorStop(0.4, 'rgba(240, 163, 90, 0.16)');
     grad.addColorStop(1, 'rgba(6, 16, 24, 0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.ellipse(0, 0, scale * 0.95, scale * 1.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, scale * 1.05, scale * 1.3, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = 'rgba(232, 244, 242, 0.18)';
-    ctx.lineWidth = 1.25;
+    // Face outline
+    ctx.strokeStyle = 'rgba(232, 244, 242, 0.42)';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.ellipse(0, 0.05 * scale, scale * 0.55, scale * 0.72, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0.04 * scale, scale * 0.58, scale * 0.78, 0, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Mesh lattice suggestion
-    ctx.strokeStyle = 'rgba(46, 230, 168, 0.16)';
-    for (let i = -3; i <= 3; i++) {
+    // Mesh lattice
+    ctx.lineWidth = 1;
+    for (let i = -4; i <= 4; i++) {
+      const alpha = 0.12 + (1 - Math.abs(i) / 4) * 0.28;
+      ctx.strokeStyle = `rgba(46, 230, 168, ${alpha})`;
       ctx.beginPath();
-      ctx.moveTo(i * scale * 0.14, -scale * 0.65);
-      ctx.quadraticCurveTo(i * scale * 0.08, 0, i * scale * 0.12, scale * 0.7);
+      ctx.moveTo(i * scale * 0.12, -scale * 0.72);
+      ctx.quadraticCurveTo(i * scale * 0.06, 0, i * scale * 0.11, scale * 0.78);
       ctx.stroke();
     }
-    for (let j = -4; j <= 4; j++) {
+    for (let j = -5; j <= 5; j++) {
+      const wobble = Math.sin(t * 0.001 + j * 0.7) * 6;
+      ctx.strokeStyle = `rgba(232, 244, 242, ${0.08 + (1 - Math.abs(j) / 5) * 0.2})`;
       ctx.beginPath();
-      ctx.moveTo(-scale * 0.5, j * scale * 0.14);
-      ctx.quadraticCurveTo(0, j * scale * 0.1 + Math.sin(t * 0.001 + j) * 4, scale * 0.5, j * scale * 0.14);
+      ctx.moveTo(-scale * 0.55, j * scale * 0.12);
+      ctx.quadraticCurveTo(0, j * scale * 0.09 + wobble, scale * 0.55, j * scale * 0.12);
       ctx.stroke();
+    }
+
+    // Scanning highlight across the mesh
+    const scanY = -scale * 0.7 + sweep * scale * 1.5;
+    const scanGrad = ctx.createLinearGradient(0, scanY - 18, 0, scanY + 18);
+    scanGrad.addColorStop(0, 'rgba(46, 230, 168, 0)');
+    scanGrad.addColorStop(0.5, 'rgba(46, 230, 168, 0.35)');
+    scanGrad.addColorStop(1, 'rgba(46, 230, 168, 0)');
+    ctx.fillStyle = scanGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0.04 * scale, scale * 0.56, scale * 0.76, 0, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillRect(-scale, scanY - 18, scale * 2, 36);
+
+    // Feature nodes
+    const nodes: Array<[number, number]> = [
+      [-0.22, -0.12],
+      [0.22, -0.12],
+      [0, 0.05],
+      [-0.16, 0.32],
+      [0.16, 0.32],
+      [0, 0.42],
+    ];
+    for (const [nx, ny] of nodes) {
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(240, 163, 90, 0.85)';
+      ctx.arc(nx * scale, ny * scale, 2.4, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.restore();

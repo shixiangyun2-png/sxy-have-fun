@@ -196,7 +196,9 @@ async function enterAR(): Promise<void> {
     experience.setIntensity(Number(intensity.value) / 100);
     setEffectUI('neural');
   } catch {
-    // error surfaced via onError
+    // Camera errors surface via onError; tear down partial MindAR state
+    experience.stop();
+    arStatus.textContent = 'Camera unavailable';
   } finally {
     loadingVeil.classList.remove('is-visible');
   }
