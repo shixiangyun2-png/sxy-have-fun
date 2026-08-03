@@ -8,27 +8,44 @@ export interface HandTrackerOptions {
   video: HTMLVideoElement;
   onFist: () => void;
   onReady?: () => void;
+  onStatus?: (status: 'loading-wasm' | 'loading-model' | 'ready' | 'stopped') => void;
+  onDebug?: (debug: GestureDebug) => void;
+}
+
+export interface GestureDebug {
+  handDetected: boolean;
+  gesture: 'NO HAND' | 'OPEN HAND' | 'FIST';
+  foldedFingers: number;
+  holdFrames: number;
+  confidence: number;
 }
 
 export class HandTracker {
   private video: HTMLVideoElement;
   private onFist: () => void;
   private onReady?: () => void;
+  private onStatus?: HandTrackerOptions['onStatus'];
+  private onDebug?: HandTrackerOptions['onDebug'];
   private landmarker: HandLandmarker | null = null;
   private raf = 0;
   private lastVideoTime = -1;
   private fistFrames = 0;
   private latched = false;
   private running = false;
+  private debugFrame = 0;
 
   constructor(options: HandTrackerOptions) {
     this.video = options.video;
     this.onFist = options.onFist;
     this.onReady = options.onReady;
+    this.onStatus = options.onStatus;
+    this.onDebug = options.onDebug;
   }
 
   async start(): Promise<void> {
+    this.onStatus?.('loading-wasm');
     const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+    this.onStatus?.('loading-model');
     this.landmarker = await HandLandmarker.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: MODEL_URL,
@@ -41,6 +58,7 @@ export class HandTracker {
       minTrackingConfidence: 0.6,
     });
     this.running = true;
+    this.onStatus?.('ready');
     this.onReady?.();
     this.loop();
   }
@@ -50,6 +68,7 @@ export class HandTracker {
     cancelAnimationFrame(this.raf);
     this.landmarker?.close();
     this.landmarker = null;
+    this.onStatus?.('stopped');
   }
 
   private loop = (): void => {
@@ -62,7 +81,8 @@ export class HandTracker {
       this.lastVideoTime = this.video.currentTime;
       const result = this.landmarker.detectForVideo(this.video, performance.now());
       const landmarks = result.landmarks[0];
-      const fist = landmarks ? this.isFist(landmarks) : false;
+      const foldedFingers = landmarks ? this.countFoldedFingers(landmarks) : 0;
+      const fist = landmarks ? this.isFist(landmarks, foldedFingers) : false;
 
       if (fist) {
         this.fistFrames += 1;
@@ -74,14 +94,25 @@ export class HandTracker {
         this.fistFrames = Math.max(0, this.fistFrames - 2);
         if (this.fistFrames === 0) this.latched = false;
       }
+
+      this.debugFrame += 1;
+      if (this.debugFrame % 4 === 0) {
+        this.onDebug?.({
+          handDetected: Boolean(landmarks),
+          gesture: !landmarks ? 'NO HAND' : fist ? 'FIST' : 'OPEN HAND',
+          foldedFingers,
+          holdFrames: this.fistFrames,
+          confidence: Math.min(1, this.fistFrames / 7),
+        });
+      }
     }
 
     this.raf = requestAnimationFrame(this.loop);
   };
 
-  private isFist(points: NormalizedLandmark[]): boolean {
+  private countFoldedFingers(points: NormalizedLandmark[]): number {
     const wrist = points[0];
-    if (!wrist) return false;
+    if (!wrist) return 0;
 
     // For each finger, a curled fingertip sits closer to the palm/wrist than
     // its proximal joint. This remains reliable when the hand is rotated.
@@ -100,6 +131,10 @@ export class HandTracker {
       if (this.distance(tip, wrist) < this.distance(pip, wrist) * 1.12) folded += 1;
     }
 
+    return folded;
+  }
+
+  private isFist(points: NormalizedLandmark[], folded: number): boolean {
     const indexMcp = points[5];
     const pinkyMcp = points[17];
     if (!indexMcp || !pinkyMcp) return false;

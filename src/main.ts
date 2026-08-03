@@ -25,6 +25,15 @@ app.innerHTML = `
         </button>
         <span class="hint">Camera + WebGL required</span>
       </div>
+      <details class="camera-guide">
+        <summary>Camera setup for local testing</summary>
+        <ol>
+          <li>On this computer, open <code>http://localhost:5173</code>.</li>
+          <li>On a phone, run <code>npm run dev:https</code> and open the HTTPS network URL.</li>
+          <li>Accept the certificate warning, then tap <strong>Allow</strong> when camera access is requested.</li>
+        </ol>
+        <p>Close Zoom/Meet first. Chrome or Safari works best.</p>
+      </details>
     </div>
   </section>
 
@@ -48,7 +57,32 @@ app.innerHTML = `
     </div>
     <div class="flash" id="flash" aria-hidden="true"></div>
     <div class="toast" id="toast" role="status"></div>
-    <div class="error-banner" id="error-banner" role="alert"></div>
+    <div class="error-banner" id="error-banner" role="alert">
+      <strong id="error-title">CAMERA START FAILED</strong>
+      <p id="error-message"></p>
+      <div>
+        <button id="retry-camera" type="button">RETRY CAMERA</button>
+        <button id="show-camera-help" type="button">SETUP HELP</button>
+      </div>
+    </div>
+    <div class="model-state" id="model-state" data-state="loading">
+      <i></i><span id="model-state-text">Waiting for camera</span>
+    </div>
+    <button class="debug-toggle" id="debug-toggle" type="button" aria-expanded="false">DEBUG</button>
+    <aside class="debug-panel" id="debug-panel" aria-label="Gesture diagnostics">
+      <header><strong>GESTURE DIAGNOSTICS</strong><span>LIVE</span></header>
+      <dl>
+        <div><dt>Secure context</dt><dd id="debug-secure">—</dd></div>
+        <div><dt>Camera stream</dt><dd id="debug-camera">IDLE</dd></div>
+        <div><dt>Face tracking</dt><dd id="debug-face">SEARCHING</dd></div>
+        <div><dt>MediaPipe</dt><dd id="debug-mediapipe">WAITING</dd></div>
+        <div><dt>Hand</dt><dd id="debug-hand">NO HAND</dd></div>
+        <div><dt>Folded fingers</dt><dd id="debug-folded">0 / 4</dd></div>
+        <div><dt>Fist hold</dt><dd id="debug-hold">0 / 7</dd></div>
+      </dl>
+      <div class="debug-confidence"><i id="debug-confidence"></i></div>
+      <p>Hold a closed fist for seven detection frames to activate.</p>
+    </aside>
     <div class="loading-veil" id="loading-veil">
       <div class="loader">
         <div class="loader-ring" aria-hidden="true"></div>
@@ -138,7 +172,22 @@ const meterFill = query<HTMLElement>('#meter-fill');
 const flash = query<HTMLElement>('#flash');
 const toast = query<HTMLElement>('#toast');
 const errorBanner = query<HTMLElement>('#error-banner');
+const errorMessage = query<HTMLElement>('#error-message');
+const retryCamera = query<HTMLButtonElement>('#retry-camera');
+const showCameraHelp = query<HTMLButtonElement>('#show-camera-help');
 const loadingVeil = query<HTMLElement>('#loading-veil');
+const modelState = query<HTMLElement>('#model-state');
+const modelStateText = query<HTMLElement>('#model-state-text');
+const debugToggle = query<HTMLButtonElement>('#debug-toggle');
+const debugPanel = query<HTMLElement>('#debug-panel');
+const debugSecure = query<HTMLElement>('#debug-secure');
+const debugCamera = query<HTMLElement>('#debug-camera');
+const debugFace = query<HTMLElement>('#debug-face');
+const debugMediapipe = query<HTMLElement>('#debug-mediapipe');
+const debugHand = query<HTMLElement>('#debug-hand');
+const debugFolded = query<HTMLElement>('#debug-folded');
+const debugHold = query<HTMLElement>('#debug-hold');
+const debugConfidence = query<HTMLElement>('#debug-confidence');
 const atmosphereCanvas = query<HTMLCanvasElement>('#atmosphere');
 
 const disposeAtmosphere = createAtmosphere(atmosphereCanvas);
@@ -206,6 +255,12 @@ async function enterAR(): Promise<void> {
   arStage.classList.add('is-active');
   arStage.setAttribute('aria-hidden', 'false');
   loadingVeil.classList.add('is-visible');
+  debugSecure.textContent = window.isSecureContext ? 'YES' : 'NO';
+  debugSecure.dataset.ok = String(window.isSecureContext);
+  debugCamera.textContent = 'REQUESTING';
+  debugMediapipe.textContent = 'WAITING FOR CAMERA';
+  modelState.dataset.state = 'loading';
+  modelStateText.textContent = 'Waiting for camera';
   arStatus.textContent = 'BOOTING';
 
   experience?.stop();
@@ -216,21 +271,40 @@ async function enterAR(): Promise<void> {
       trackReading.textContent = tracking ? 'LOCKED' : 'SEARCHING';
       arStage.classList.toggle('is-tracking', tracking);
       activateBtn.disabled = !tracking;
+      debugFace.textContent = tracking ? 'LOCKED' : 'SEARCHING';
+      debugFace.dataset.ok = String(tracking);
       if (experience?.suitPhase === 'idle') updatePhase('idle', 0);
     },
     onGestureReady: () => {
       gestureStatus.textContent = 'FIST GESTURE ARMED';
       gestureStatus.classList.add('online');
     },
+    onGestureStatus: (status, state) => {
+      modelStateText.textContent = status;
+      modelState.dataset.state = state;
+      debugMediapipe.textContent = status.toUpperCase();
+      debugMediapipe.dataset.ok = String(state === 'ready');
+    },
+    onGestureDebug: (debug) => {
+      debugHand.textContent = debug.gesture;
+      debugHand.dataset.ok = String(debug.gesture === 'FIST');
+      debugFolded.textContent = `${debug.foldedFingers} / 4`;
+      debugHold.textContent = `${debug.holdFrames} / 7`;
+      debugConfidence.style.width = `${debug.confidence * 100}%`;
+    },
     onPhase: updatePhase,
     onError: (message) => {
-      errorBanner.textContent = message;
+      errorMessage.textContent = message;
       errorBanner.classList.add('is-visible');
+      debugCamera.textContent = 'ERROR';
+      debugCamera.dataset.ok = 'false';
     },
   });
 
   try {
     await experience.start();
+    debugCamera.textContent = 'STREAMING';
+    debugCamera.dataset.ok = 'true';
   } catch {
     experience.stop();
     experience = null;
@@ -257,12 +331,25 @@ function exitAR(): void {
   landing.classList.remove('is-exiting');
   loadingVeil.classList.remove('is-visible');
   errorBanner.classList.remove('is-visible');
+  debugPanel.classList.remove('is-visible');
+  debugToggle.setAttribute('aria-expanded', 'false');
   gestureStatus.textContent = 'MEDIAPIPE INITIALIZING';
   gestureStatus.classList.remove('online');
   updatePhase('idle', 0);
 }
 
 startBtn.addEventListener('click', () => void enterAR());
+retryCamera.addEventListener('click', () => void enterAR());
+showCameraHelp.addEventListener('click', () => {
+  exitAR();
+  const guide = query<HTMLDetailsElement>('.camera-guide');
+  guide.open = true;
+  guide.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+debugToggle.addEventListener('click', () => {
+  const visible = debugPanel.classList.toggle('is-visible');
+  debugToggle.setAttribute('aria-expanded', String(visible));
+});
 backBtn.addEventListener('click', exitAR);
 activateBtn.addEventListener('click', activateArmor);
 resetBtn.addEventListener('click', () => experience?.reset());

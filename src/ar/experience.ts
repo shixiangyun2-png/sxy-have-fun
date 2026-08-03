@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HandTracker } from './hand-tracker';
+import { HandTracker, type GestureDebug } from './hand-tracker';
 import { armorFragmentShader, armorVertexShader } from './shaders';
 
 type MindARThreeInstance = {
@@ -20,6 +20,8 @@ export interface ARExperienceOptions {
   onTracking?: (tracking: boolean) => void;
   onPhase?: (phase: SuitPhase, progress: number) => void;
   onGestureReady?: () => void;
+  onGestureStatus?: (status: string, state: 'loading' | 'ready' | 'error' | 'off') => void;
+  onGestureDebug?: (debug: GestureDebug) => void;
   onError?: (message: string) => void;
 }
 
@@ -50,6 +52,8 @@ export class ARExperience {
   private onTracking?: (tracking: boolean) => void;
   private onPhase?: (phase: SuitPhase, progress: number) => void;
   private onGestureReady?: () => void;
+  private onGestureStatus?: ARExperienceOptions['onGestureStatus'];
+  private onGestureDebug?: ARExperienceOptions['onGestureDebug'];
   private onError?: (message: string) => void;
 
   constructor(options: ARExperienceOptions) {
@@ -58,6 +62,8 @@ export class ARExperience {
     this.onTracking = options.onTracking;
     this.onPhase = options.onPhase;
     this.onGestureReady = options.onGestureReady;
+    this.onGestureStatus = options.onGestureStatus;
+    this.onGestureDebug = options.onGestureDebug;
     this.onError = options.onError;
   }
 
@@ -70,6 +76,16 @@ export class ARExperience {
     this.onStatus?.('REQUESTING CAMERA');
 
     try {
+      if (!window.isSecureContext) {
+        throw new DOMException(
+          'Camera access requires HTTPS when testing from another device.',
+          'SecurityError',
+        );
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new DOMException('This browser does not support camera capture.', 'NotSupportedError');
+      }
+
       const { MindARThree } = await import('mind-ar/dist/mindar-face-three.prod.js');
       const mindar = new MindARThree({
         container: this.container,
@@ -127,10 +143,7 @@ export class ARExperience {
         renderer.render(scene, camera);
       });
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Camera access failed. Allow camera permission and use HTTPS or localhost.';
+      const message = this.describeCameraError(error);
       this.onError?.(message);
       this.onStatus?.('CAMERA OFFLINE');
       throw error;
@@ -376,11 +389,24 @@ export class ARExperience {
       video,
       onFist: () => this.activate(),
       onReady: this.onGestureReady,
+      onStatus: (status) => {
+        const states = {
+          'loading-wasm': ['Loading MediaPipe runtime…', 'loading'],
+          'loading-model': ['Loading hand gesture model…', 'loading'],
+          ready: ['Gesture model ready', 'ready'],
+          stopped: ['Gesture model stopped', 'off'],
+        } as const;
+        const next = states[status];
+        this.onGestureStatus?.(next[0], next[1]);
+      },
+      onDebug: this.onGestureDebug,
     });
     try {
       await this.handTracker.start();
-    } catch {
+    } catch (error) {
       // Button activation remains available if MediaPipe assets are blocked.
+      const detail = error instanceof Error ? error.message : 'Model download failed';
+      this.onGestureStatus?.(`MediaPipe unavailable: ${detail}`, 'error');
       this.onStatus?.(this.lastVisible ? 'TARGET LOCKED' : 'SCANNING PILOT');
     }
   }
@@ -401,5 +427,31 @@ export class ARExperience {
 
   private easeOut(value: number): number {
     return 1 - Math.pow(1 - value, 4);
+  }
+
+  private describeCameraError(error: unknown): string {
+    const name = error instanceof DOMException ? error.name : '';
+    const raw = error instanceof Error ? error.message : String(error);
+    const message = raw.toLowerCase();
+
+    if (name === 'NotAllowedError' || message.includes('permission') || message.includes('denied')) {
+      return 'Camera permission is blocked. Click the camera/lock icon in the address bar, choose Allow, then reload.';
+    }
+    if (name === 'NotFoundError' || message.includes('requested device not found')) {
+      return 'No camera was found. Connect or enable a webcam, then reload this page.';
+    }
+    if (name === 'NotReadableError' || message.includes('could not start video')) {
+      return 'The camera is busy. Close Zoom, Meet, or other camera apps, then try again.';
+    }
+    if (name === 'OverconstrainedError') {
+      return 'The selected camera cannot provide the requested video mode. Try another camera.';
+    }
+    if (name === 'SecurityError' || !window.isSecureContext) {
+      return 'Camera access requires HTTPS on phones. Run npm run dev:https and open the HTTPS network URL.';
+    }
+    if (name === 'NotSupportedError') {
+      return 'Camera capture is not supported in this browser. Use a current version of Chrome, Edge, or Safari.';
+    }
+    return `Camera initialization failed: ${raw || 'Unknown error'}. Check browser permissions and reload.`;
   }
 }
