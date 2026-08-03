@@ -1,40 +1,4 @@
-export type EffectId = 'neural' | 'chrome' | 'glitch' | 'prism' | 'wire';
-
-export interface EffectDefinition {
-  id: EffectId;
-  name: string;
-  description: string;
-}
-
-export const EFFECTS: EffectDefinition[] = [
-  {
-    id: 'neural',
-    name: 'Neural Glow',
-    description: 'Soft bioluminescent mesh mapped to your face.',
-  },
-  {
-    id: 'chrome',
-    name: 'Liquid Chrome',
-    description: 'Mirror-skin reflections that shift with motion.',
-  },
-  {
-    id: 'glitch',
-    name: 'Identity Glitch',
-    description: 'Fragmented AI signal tearing through features.',
-  },
-  {
-    id: 'prism',
-    name: 'Prism Mind',
-    description: 'Spectral refraction across facial geometry.',
-  },
-  {
-    id: 'wire',
-    name: 'Wireframe AI',
-    description: 'Blueprint lattice of a machine-read face.',
-  },
-];
-
-export const vertexShader = /* glsl */ `
+export const armorVertexShader = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vNormal;
   varying vec3 vWorldPos;
@@ -48,12 +12,10 @@ export const vertexShader = /* glsl */ `
   }
 `;
 
-export const fragmentShader = /* glsl */ `
+export const armorFragmentShader = /* glsl */ `
   uniform float uTime;
-  uniform float uIntensity;
-  uniform int uMode;
-  uniform vec3 uColorA;
-  uniform vec3 uColorB;
+  uniform float uProgress;
+  uniform float uCharge;
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -75,65 +37,32 @@ export const fragmentShader = /* glsl */ `
   }
 
   void main() {
-    float fresnel = pow(1.0 - max(dot(normalize(vNormal), vec3(0.0, 0.0, 1.0)), 0.0), 2.2);
-    float n = noise(vUv * 8.0 + uTime * 0.35);
-    float pulse = 0.5 + 0.5 * sin(uTime * 2.0 + vUv.y * 12.0);
-    vec3 color = mix(uColorA, uColorB, vUv.y);
-    float alpha = 0.35;
+    float fresnel = pow(1.0 - max(dot(normalize(vNormal), vec3(0.0, 0.0, 1.0)), 0.0), 2.6);
+    float n = noise(vUv * 18.0 + uTime * 0.18);
+    float panelX = step(0.91, fract(vUv.x * 13.0 + vUv.y * 2.0));
+    float panelY = step(0.92, fract(vUv.y * 17.0));
+    float seams = max(panelX, panelY);
+    float sweep = smoothstep(0.0, 0.08, abs(vUv.y - (1.05 - uProgress * 1.2)));
+    float reveal = smoothstep(0.0, 0.14, uProgress - (1.0 - vUv.y) * 0.75);
+    float pulse = 0.65 + 0.35 * sin(uTime * 4.0);
 
-    if (uMode == 0) {
-      // Neural glow
-      float veins = smoothstep(0.35, 0.75, noise(vUv * 14.0 + uTime * 0.5));
-      color = mix(uColorA, uColorB, veins + fresnel * 0.5);
-      color += vec3(0.1, 0.35, 0.25) * pulse * uIntensity;
-      alpha = mix(0.25, 0.72, fresnel + veins * 0.4) * uIntensity;
-    } else if (uMode == 1) {
-      // Liquid chrome
-      vec3 reflectDir = reflect(normalize(vWorldPos), normalize(vNormal));
-      float spec = pow(max(dot(reflectDir, normalize(vec3(0.2, 0.8, 0.5))), 0.0), 18.0);
-      color = mix(vec3(0.55, 0.62, 0.7), vec3(0.9, 0.95, 1.0), fresnel);
-      color += uColorA * spec * 1.4;
-      color += uColorB * n * 0.25;
-      alpha = mix(0.45, 0.9, fresnel) * uIntensity;
-    } else if (uMode == 2) {
-      // Identity glitch
-      float band = step(0.92, fract(vUv.y * 28.0 + uTime * 3.5 + n));
-      float shift = (hash(vec2(floor(vUv.y * 40.0), floor(uTime * 8.0))) - 0.5) * 0.08;
-      float tear = smoothstep(0.4, 0.9, noise(vUv * vec2(30.0, 4.0) + uTime * 2.0));
-      color = mix(uColorA, uColorB, tear);
-      color.rb += shift * 2.0 * uIntensity;
-      color += vec3(band) * 0.55;
-      alpha = mix(0.2, 0.85, tear + band) * uIntensity;
-    } else if (uMode == 3) {
-      // Prism mind
-      float angle = atan(vUv.y - 0.5, vUv.x - 0.5);
-      float rainbow = 0.5 + 0.5 * sin(angle * 3.0 + uTime + fresnel * 6.0);
-      color = mix(uColorA, uColorB, rainbow);
-      color += vec3(0.35, 0.15, 0.55) * fresnel;
-      color += vec3(n * 0.2);
-      alpha = mix(0.3, 0.8, fresnel + rainbow * 0.3) * uIntensity;
-    } else {
-      // Wireframe AI
-      float gridX = abs(fract(vUv.x * 24.0) - 0.5);
-      float gridY = abs(fract(vUv.y * 24.0) - 0.5);
-      float line = 1.0 - smoothstep(0.0, 0.04, min(gridX, gridY));
-      float scan = smoothstep(0.0, 0.15, abs(fract(vUv.y * 2.0 - uTime * 0.4) - 0.5));
-      color = mix(uColorA * 0.25, uColorB, line);
-      color += vec3(0.05, 0.2, 0.15) * (1.0 - scan);
-      alpha = max(line * 0.95, fresnel * 0.25) * uIntensity;
-    }
+    vec3 crimson = vec3(0.34, 0.012, 0.018);
+    vec3 hotRed = vec3(0.95, 0.055, 0.035);
+    vec3 titanium = vec3(0.9, 0.62, 0.2);
+    vec3 cyan = vec3(0.1, 0.9, 1.0);
+    vec3 armor = mix(crimson, hotRed, n * 0.55 + fresnel * 0.65);
+    float goldPanel = smoothstep(0.42, 0.62, vUv.y) * (1.0 - smoothstep(0.68, 0.86, abs(vUv.x - 0.5) * 2.0));
+    armor = mix(armor, titanium, goldPanel * 0.62);
+    armor += seams * mix(titanium, cyan, pulse) * 0.75;
+    armor += cyan * fresnel * (0.45 + uCharge);
+    armor += cyan * (1.0 - sweep) * 0.9 * step(uProgress, 0.98);
 
-    gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.95));
+    float eyes = smoothstep(0.09, 0.0, abs(vUv.y - 0.58)) *
+      smoothstep(0.34, 0.18, abs(abs(vUv.x - 0.5) - 0.17));
+    armor += cyan * eyes * (2.0 + pulse);
+
+    float alpha = reveal * mix(0.78, 0.97, fresnel + seams);
+    alpha += eyes * reveal;
+    gl_FragColor = vec4(armor, clamp(alpha, 0.0, 0.98));
   }
 `;
-
-export const MODE_COLORS: Record<EffectId, { a: [number, number, number]; b: [number, number, number] }> = {
-  neural: { a: [0.05, 0.45, 0.35], b: [0.18, 0.95, 0.7] },
-  chrome: { a: [0.7, 0.85, 0.95], b: [0.95, 0.75, 0.45] },
-  glitch: { a: [0.95, 0.2, 0.35], b: [0.15, 0.9, 0.85] },
-  prism: { a: [0.2, 0.55, 0.95], b: [0.95, 0.55, 0.25] },
-  wire: { a: [0.05, 0.2, 0.18], b: [0.25, 0.95, 0.75] },
-};
-
-export const modeIndex = (id: EffectId): number =>
-  ({ neural: 0, chrome: 1, glitch: 2, prism: 3, wire: 4 })[id];
