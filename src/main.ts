@@ -200,6 +200,7 @@ function updatePhase(phase: SuitPhase, progress: number): void {
 }
 
 async function enterAR(): Promise<void> {
+  startBtn.blur();
   errorBanner.classList.remove('is-visible');
   landing.classList.add('is-exiting');
   arStage.classList.add('is-active');
@@ -247,6 +248,7 @@ function activateArmor(): void {
 }
 
 function exitAR(): void {
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   experience?.stop();
   experience = null;
   arStage.className = 'ar-stage';

@@ -1,13 +1,14 @@
-# HAVE FUN — AI Transformation WebAR
+# SUIT UP — Cinematic Armor WebAR
 
-Interactive face-tracking WebAR experience. Morph through five neural identities in the browser — no app install.
+Interactive face- and hand-tracking WebAR armor experience. Charge the reactor and watch metallic nanoplates assemble over your face in the browser.
 
 ## Features
 
 - **Face WebAR** via MindAR + Three.js
-- **Five AI transformations**: Neural Glow, Liquid Chrome, Identity Glitch, Prism Mind, Wireframe AI
-- Intensity control, effect cycling, and photo capture
-- Branded landing with animated atmosphere
+- **Fist activation** via MediaPipe Tasks Vision
+- Four-stage sequence: idle, energy charge, nanotech assembly, armor online
+- Custom GLSL armor material, physical 3D plates, holograms, particles, and camera shake
+- Responsive cinematic HUD, reset, and photo capture
 
 ## Quick start
 
